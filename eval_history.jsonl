@@ -1,0 +1,1 @@
+{"label": "baseline", "time": "2026-10-01T11:45:16+00:00", "questions": 15, "errors": 0, "refusal_tests_passed": 1, "refusal_tests": 2, "false_refusals": 0, "bad_citation_answers": 0, "no_citation_answers": 0, "cites_expected_page": 11, "with_expected_pages": 13, "overall_pass": 12, "evaluated": 15}

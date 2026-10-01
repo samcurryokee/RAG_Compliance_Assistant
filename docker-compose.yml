@@ -1,16 +1,16 @@
+# Local development database only. Production uses Supabase.
 services:
-  postgres:
+  db:
     image: pgvector/pgvector:pg16
-    container_name: rag_postgres
-    restart: unless-stopped
+    container_name: rag-pg
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: yourpassword
-      POSTGRES_DB: rag_engine
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: rag
     ports:
       - "5432:5432"
     volumes:
-      - rag_pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
 
 volumes:
-  rag_pgdata:
+  pgdata:

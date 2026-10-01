@@ -1,60 +1,70 @@
-import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning)
+"""Load PDFs -> chunk -> embed with Gemini -> store in pgvector.
 
+Usage:  python3 ingest.py
+Each run WIPES and rebuilds the collection, so it is safe to re-run.
+Batched and paced to stay under the Gemini free-tier limit (100 requests/minute).
+"""
+import glob
 import os
-from dotenv import load_dotenv
-from langchain_community.document_loaders import PyPDFDirectoryLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_postgres import PGVector
+import sys
 import time
 
-BATCH_SIZE = 80      # stay under the 100 requests/minute free-tier limit
-PAUSE_SECONDS = 65   # let the per-minute quota reset between batches
+from dotenv import load_dotenv
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pypdf import PdfReader
+
 load_dotenv()
 
+from chain import COLLECTION_NAME, EMBEDDING_MODEL, get_engine  # noqa: E402
+
 DOCS_DIR = "data/documents"
-COLLECTION_NAME = "kenyan_constitution"
+BATCH_SIZE = 80
+PAUSE_SECONDS = 65
 
 
+def load_pdfs():
+    """One Document per PDF page. metadata: source (path) and page (0-indexed)."""
+    docs = []
+    for path in sorted(glob.glob(os.path.join(DOCS_DIR, "*.pdf"))):
+        reader = PdfReader(path)
+        for i, page in enumerate(reader.pages):
+            text = page.extract_text() or ""
+            if text.strip():
+                docs.append(Document(page_content=text, metadata={"source": path, "page": i}))
+    print(f"Loaded {len(docs)} pages from {DOCS_DIR}")
+    return docs
 
 
-def load_and_split():
-    loader = PyPDFDirectoryLoader(DOCS_DIR)
-    raw_docs = loader.load()  # one Document per PDF page, with .metadata['source'] and ['page']
-    print(f"Loaded {len(raw_docs)} pages from {DOCS_DIR}")
-
+def split(docs):
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=150,
         separators=["\n\n", "\n", ". ", " ", ""],
     )
-    chunks = splitter.split_documents(raw_docs)
+    chunks = splitter.split_documents(docs)
     print(f"Split into {len(chunks)} chunks")
     return chunks
 
 
-
-
-
 def embed_and_store(chunks):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
+    from langchain_google_genai import GoogleGenerativeAIEmbeddings
+    from langchain_postgres import PGVector
 
-    vectorstore = PGVector(
-        embeddings=embeddings,
+    store = PGVector(
+        embeddings=GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL),
         collection_name=COLLECTION_NAME,
-        connection=os.environ["DATABASE_URL"],
+        connection=get_engine(),
         use_jsonb=True,
         pre_delete_collection=True,  # start clean on every run
     )
 
     total = len(chunks)
     for start in range(0, total, BATCH_SIZE):
-        batch = chunks[start:start + BATCH_SIZE]
-
+        batch = chunks[start : start + BATCH_SIZE]
         for attempt in range(5):
             try:
-                vectorstore.add_documents(batch)
+                store.add_documents(batch)
                 break
             except Exception as e:
                 if "RESOURCE_EXHAUSTED" in str(e) and attempt < 4:
@@ -62,16 +72,16 @@ def embed_and_store(chunks):
                     time.sleep(PAUSE_SECONDS)
                 else:
                     raise
-
         done = min(start + BATCH_SIZE, total)
         print(f"Stored {done}/{total} chunks")
         if done < total:
             time.sleep(PAUSE_SECONDS)
 
     print(f'Finished: {total} chunks in collection "{COLLECTION_NAME}"')
-    return vectorstore
 
 
 if __name__ == "__main__":
-    chunks = load_and_split()
-    embed_and_store(chunks)
+    docs = load_pdfs()
+    if not docs:
+        sys.exit(f"No PDFs with extractable text found in {DOCS_DIR}")
+    embed_and_store(split(docs))

@@ -1,3 +1,13 @@
+"""Helper for building golden_set.json: find which PDF page an article starts on.
+
+Usage:
+  python3 find_pages.py 137 145 142        # look up articles by number
+  python3 find_pages.py --text "phrase"    # search for a phrase
+  python3 find_pages.py --golden           # every article_hint in golden_set.json
+
+Page numbers count from the first page of the PDF, matching chain.py.
+Matches far into the document (counties, schedules) are usually false positives.
+"""
 import glob
 import json
 import os
@@ -10,7 +20,6 @@ DOCS_DIR = "data/documents"
 
 
 def load_pages():
-    """List of (filename, page_number_1_based, text) for every PDF page."""
     pages = []
     for path in sorted(glob.glob(os.path.join(DOCS_DIR, "*.pdf"))):
         reader = PdfReader(path)
@@ -20,16 +29,14 @@ def load_pages():
 
 
 def looks_like_toc(line):
-    # dotted leaders or a trailing page number are typical of a table of contents
     return bool(re.search(r"\.{3,}", line) or re.search(r"\s\d{1,3}\s*$", line))
 
 
 def article_report(n, pages):
     heading_re = re.compile(rf"^\s*{n}\.\s+(.+)$", re.M)
     mention_re = re.compile(rf"\bArticles?\s+{n}\b")
-
     starts, tocs, mentions = [], [], []
-    for fname, num, text in pages:
+    for _, num, text in pages:
         for m in heading_re.finditer(text):
             line = m.group(0).strip()
             (tocs if looks_like_toc(line) else starts).append((num, line[:80]))
@@ -52,11 +59,11 @@ def article_report(n, pages):
 def text_report(phrase, pages):
     print(f'\nPages containing "{phrase}":')
     found = False
-    for fname, num, text in pages:
+    for _, num, text in pages:
         if phrase.lower() in text.lower():
             found = True
             idx = text.lower().index(phrase.lower())
-            snippet = text[max(0, idx - 40): idx + 80].replace("\n", " ")
+            snippet = text[max(0, idx - 40) : idx + 80].replace("\n", " ")
             print(f"  p.{num}: ...{snippet}...")
     if not found:
         print("  no matches")
@@ -77,15 +84,10 @@ def golden_report(pages):
 def main():
     args = sys.argv[1:]
     if not args:
-        print("Usage:")
-        print("  python3 find_pages.py 137 145 142        # look up articles by number")
-        print('  python3 find_pages.py --text "phrase"    # search for a phrase')
-        print("  python3 find_pages.py --golden           # every article_hint in golden_set.json")
+        print(__doc__)
         return
-
     pages = load_pages()
     print(f"Loaded {len(pages)} pages")
-
     if args[0] == "--golden":
         golden_report(pages)
     elif args[0] == "--text":

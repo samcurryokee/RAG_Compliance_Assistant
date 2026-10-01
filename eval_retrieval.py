@@ -1,29 +1,17 @@
+"""Retrieval evaluation: does the expected page show up in the top-k chunks?
+
+Usage:  python3 eval_retrieval.py
+Reads golden_set.json. Questions with empty expected_pages and refusal questions are skipped.
+No LLM calls, only one embedding call per question.
+"""
 import json
-import os
-from dotenv import load_dotenv
-from langchain_postgres import PGVector
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
-load_dotenv()
+from chain import get_store, page_label
 
-COLLECTION_NAME = "kenyan_constitution"
-RETRIEVE_K = 10  # fetch 10 once, then score at k=3, k=5, and MRR
-
-embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
-store = PGVector(
-    embeddings=embeddings,
-    collection_name=COLLECTION_NAME,
-    connection=os.environ["DATABASE_URL"],
-    use_jsonb=True,
-)
-
-
-def page_label(doc):
-    return int(doc.metadata.get("page", 0)) + 1
+RETRIEVE_K = 10  # fetch 10 once, then score at k=3, k=5 and MRR
 
 
 def first_hit_rank(retrieved_pages, expected_pages):
-    """1-based rank of the first chunk from any expected page, or None."""
     for rank, page in enumerate(retrieved_pages, start=1):
         if page in expected_pages:
             return rank
@@ -36,13 +24,13 @@ def main():
 
     testable = [q for q in golden if not q["should_refuse"] and q["expected_pages"]]
     skipped = [q["id"] for q in golden if not q["should_refuse"] and not q["expected_pages"]]
-
     if skipped:
-        print(f"Skipping {len(skipped)} questions with no expected_pages yet: {', '.join(skipped)}\n")
+        print(f"Skipping {len(skipped)} questions with no expected_pages: {', '.join(skipped)}\n")
     if not testable:
         print("Nothing to evaluate. Fill in expected_pages in golden_set.json first.")
         return
 
+    store = get_store()
     hits3 = hits5 = 0
     rr_total = 0.0
     misses = []
@@ -50,8 +38,7 @@ def main():
     for q in testable:
         docs = store.similarity_search(q["question"], k=RETRIEVE_K)
         pages = [page_label(d) for d in docs]
-        rank = first_hit_rank(pages, q["expected_pages"])
-
+        rank = first_hit_rank(pages, set(q["expected_pages"]))
         if rank is not None and rank <= 3:
             hits3 += 1
         if rank is not None and rank <= 5:
@@ -60,7 +47,6 @@ def main():
             rr_total += 1.0 / rank
         else:
             misses.append(q["id"])
-
         status = f"rank {rank}" if rank else "MISS"
         print(f"{q['id']} [{status}] expected {q['expected_pages']} | retrieved {pages[:5]}")
         print(f"     {q['question']}")
