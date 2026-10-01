@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: kenya-constitution-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ALLOWED_ORIGIN_REGEX
+        value: 'https://.*\.(lovable\.app|lovableproject\.com)'
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "6"
+      - key: DAILY_CAP
+        value: "300"
