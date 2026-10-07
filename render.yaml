@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: kenya-constitution-api
+    name: medical-notes-api
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt

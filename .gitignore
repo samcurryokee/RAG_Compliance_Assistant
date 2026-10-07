@@ -1,4 +1,19 @@
+# secrets
 .env
+
+# the notes themselves and their extracted text stay off GitHub
+data/documents/*
+!data/documents/.gitkeep
+data/extracted/*
+!data/extracted/.gitkeep
+
+# python
 venv/
+.venv/
 __pycache__/
+*.pyc
+
+# os / editor
 .DS_Store
+.idea/
+.vscode/

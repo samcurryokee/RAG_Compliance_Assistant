@@ -1,47 +1,47 @@
-"""Retrieval + answer chain for the Kenyan Constitution assistant.
+"""Retrieval + answer chain for the medical notes assistant.
 
 Imported by api.py, ingest.py and the eval scripts. Also runnable as a terminal chat:
-    python3 chain.py
+    python3 chain.py [subject]        e.g. python3 chain.py Neuroanatomy
 
-Heavy imports (LangChain, SQLAlchemy) happen lazily inside the get_* functions so the
-API starts fast and /health responds even if a provider is misconfigured.
+Heavy imports (LangChain, SQLAlchemy) happen lazily inside the get_* functions so the API
+starts fast and /health responds even if a provider is misconfigured.
 """
 import os
 import re
+import sys
 from functools import lru_cache
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "kenyan_constitution")
+COLLECTION_NAME = os.getenv("COLLECTION_NAME", "medical_notes")
 TOP_K = int(os.getenv("TOP_K", "5"))
 EMBEDDING_MODEL = "models/gemini-embedding-001"  # must match the model used in ingest.py
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b")
 REFUSAL_MARKER = "could not find this in the provided documents"
 
-PROMPT_TEMPLATE = """You are a legal research assistant for the Constitution of Kenya.
-Answer the question using ONLY the context below.
+PROMPT_TEMPLATE = """You are a study assistant for medical students. Answer the question using ONLY the lecture notes in the context below.
 
 Rules:
 1. Say "I could not find this in the provided documents." ONLY if none of the passages
    is relevant to the question. If any passage is related, answer from it (see rule 5).
 2. Cite every claim as [filename, p.N], copying the label shown above the passage EXACTLY.
-   Example: [kenyan_constitution.pdf, p.25]
-3. N is always the PAGE number from the label. Never use an Article number as a page number.
-4. Only cite pages whose labels appear in the context below.
-5. If the passages address the topic only indirectly, do NOT refuse. Say what the text
-   does not state, then explain what the relevant passage does say and cite it.
-   Example pattern: "The provided text does not mention X by name. However, [provision]
-   says ... [citation]."
-6. For yes/no questions, answer "yes" or "no" only if the passages directly answer it.
-   Otherwise use the pattern in rule 5.
-7. Do not conclude beyond what the passages state. If related provisions such as
-   exceptions or emergency rules might exist but were not provided, say so.
-8. Do not add qualifiers such as "expressly" or "explicitly" unless those words
-   appear in the passage.
-9. Do not use outside knowledge.
+    If the label shows a page range, cite it as shown. Always use plain square brackets [ ],
+   never any other bracket style, and one citation per pair of brackets.
+   Example: [Basic Embryology, Pulei.pdf, p.40-42]
+3. Only cite labels that appear in the context below. Never invent a file or page.
+4. The notes come from slides and OCR text and may contain typos or garbled words.
+   If a passage looks garbled or incomplete, say so instead of guessing.
+5. If the passages address the topic only partly, do NOT refuse. Say what the notes do
+   not state, then explain what the relevant passages do say and cite them.
+6. Do not add facts, numbers or clinical advice that are not in the passages.
+   Do not use outside knowledge.
+7. Keep answers concise and structured (short paragraphs or bullet points) and use the
+   terminology of the notes.
+8. If the question is about caring for a patient or choosing a treatment, add one sentence
+   saying this is a study aid and to verify with a qualified clinician and current guidelines.
 
 Context:
 {context}
@@ -49,6 +49,12 @@ Context:
 Question: {question}
 
 Answer:"""
+
+# [file name, p.12] or [file name, p.12-14]; file names may contain commas
+CITATION_RE = re.compile(
+    r"([^\[\]\u3010\u3011\n]*?\.pdf)\s*,\s*pp?\.\s*(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?",
+    re.IGNORECASE,
+)
 
 
 def database_url():
@@ -65,11 +71,7 @@ def get_engine():
     from sqlalchemy import create_engine
 
     return create_engine(
-        database_url(),
-        pool_size=2,
-        max_overflow=2,
-        pool_pre_ping=True,
-        pool_recycle=300,
+        database_url(), pool_size=2, max_overflow=2, pool_pre_ping=True, pool_recycle=300
     )
 
 
@@ -99,30 +101,73 @@ def get_chain():
     return ChatPromptTemplate.from_template(PROMPT_TEMPLATE) | llm | StrOutputParser()
 
 
-def page_label(doc):
-    # PDF pages are stored 0-indexed; +1 so it matches the page in a PDF viewer
-    return int(doc.metadata.get("page", 0)) + 1
+# ---- page labels -------------------------------------------------------------------------
+# Chunks store page (first page, 0-indexed) and page_end (last page, 0-indexed) because
+# several short slides are merged into one chunk. Labels are 1-based, as in a PDF viewer.
+
+def page_span(doc):
+    start = int(doc.metadata.get("page", 0)) + 1
+    end = int(doc.metadata.get("page_end", doc.metadata.get("page", 0))) + 1
+    return start, max(start, end)
+
+
+def page_text(start, end):
+    return f"{start}" if start == end else f"{start}-{end}"
 
 
 def source_label(doc):
     return os.path.basename(doc.metadata.get("source", "unknown"))
 
 
+def doc_label(doc):
+    return f"[{source_label(doc)}, p.{page_text(*page_span(doc))}]"
+
+
 def format_docs(docs):
-    return "\n\n".join(
-        f"[{source_label(d)}, p.{page_label(d)}]\n{d.page_content}" for d in docs
-    )
+    return "\n\n".join(f"{doc_label(d)}\n{d.page_content}" for d in docs)
 
 
-def cited_pages(answer):
-    """Set of page numbers the answer cites, e.g. {25, 26}."""
-    return {int(n) for n in re.findall(r"p\.\s*(\d+)", answer)}
+# ---- citation checks ---------------------------------------------------------------------
+
+def _clean_name(raw, known):
+    """Strip bracket/punctuation junk, and any words before a known file name."""
+    raw = raw.strip(" \t([\u3010;,:")
+    for k in sorted(known, key=len, reverse=True):
+        if raw.endswith(k):
+            return k
+    return raw
+
+
+def cited_pairs(answer, known_files=()):
+    """Set of (file, page) pairs the answer cites; page ranges are expanded.
+
+    known_files: file names to match against, so "see X.pdf, p.3" (no brackets) still resolves to X.pdf.
+    """
+    pairs = set()
+    for name, a, b in CITATION_RE.findall(answer):
+        start = int(a)
+        end = int(b) if b else start
+        if end < start or end - start > 60:
+            end = start
+        for p in range(start, end + 1):
+            pairs.add((_clean_name(name, known_files), p))
+    return pairs
+
+
+def retrieved_pairs(docs):
+    pairs = set()
+    for d in docs:
+        start, end = page_span(d)
+        for p in range(start, end + 1):
+            pairs.add((source_label(d), p))
+    return pairs
 
 
 def check_citations(answer, docs):
-    """Cited pages that were NOT among the retrieved pages (likely hallucinated)."""
-    retrieved = {page_label(d) for d in docs}
-    return sorted(cited_pages(answer) - retrieved)
+    """Citations (as 'file, p.N') that do NOT match any retrieved (file, page): likely invented."""
+    known = {source_label(d) for d in docs}
+    bad = sorted(cited_pairs(answer, known) - retrieved_pairs(docs))
+    return [f"{f}, p.{p}" for f, p in bad]
 
 
 def is_refusal(answer):
@@ -134,25 +179,32 @@ def make_snippet(text, limit=350):
     return text if len(text) <= limit else text[:limit].rstrip() + "..."
 
 
-def ask(question):
-    docs = get_store().similarity_search(question, k=TOP_K)
-    answer = get_chain().invoke(
-        {"context": format_docs(docs), "question": question}
-    ).strip()
-    cited = cited_pages(answer)
+# ---- main entry points -------------------------------------------------------------------
+
+def ask(question, subject=None):
+    """Answer a question from the notes. subject optionally restricts the search."""
+    flt = {"subject": {"$eq": subject}} if subject else None
+    docs = get_store().similarity_search(question, k=TOP_K, filter=flt)
+    answer = get_chain().invoke({"context": format_docs(docs), "question": question}).strip()
+    answer = answer.replace("\u3010", "[").replace("\u3011", "]")  # tidy 【 】 into [ ]
+    cited = cited_pairs(answer, {source_label(d) for d in docs})
 
     sources, seen = [], set()
-    for d in docs:  # retrieval order, one entry per page
-        key = (source_label(d), page_label(d))
+    for d in docs:  # retrieval order, one entry per page span
+        start, end = page_span(d)
+        key = (source_label(d), start, end)
         if key in seen:
             continue
         seen.add(key)
         sources.append(
             {
                 "file": key[0],
-                "page": key[1],
+                "title": d.metadata.get("title", key[0]),
+                "subject": d.metadata.get("subject", ""),
+                "page": start,
+                "page_end": end,
                 "snippet": make_snippet(d.page_content),
-                "cited": key[1] in cited,
+                "cited": any((key[0], p) in cited for p in range(start, end + 1)),
             }
         )
 
@@ -160,26 +212,43 @@ def ask(question):
         "answer": answer,
         "sources": sources,
         "refused": is_refusal(answer),
+        "cited": cited,
         "bad_citations": check_citations(answer, docs),
-        "retrieved_pages": [page_label(d) for d in docs],
+        "retrieved": [(s["file"], s["page"], s["page_end"]) for s in sources],
     }
 
 
+def list_documents():
+    """Documents that are actually embedded, from the manifest table written by ingest.py."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import ProgrammingError
+
+    sql = text(
+        "SELECT file, title, subject, pages, chunks FROM rag_documents "
+        "WHERE collection = :c ORDER BY subject, title"
+    )
+    try:
+        with get_engine().connect() as conn:
+            return [dict(r) for r in conn.execute(sql, {"c": COLLECTION_NAME}).mappings().all()]
+    except ProgrammingError:  # table does not exist yet (nothing ingested)
+        return []
+
+
 if __name__ == "__main__":
-    print("Kenya Constitution assistant. Type 'quit' to exit.\n")
+    subject = sys.argv[1] if len(sys.argv) > 1 else None
+    print(f"Medical notes assistant{' (' + subject + ')' if subject else ''}. Type 'quit' to exit.\n")
     while True:
         q = input("Question: ").strip()
         if q.lower() in {"quit", "exit", "q"}:
             break
         if not q:
             continue
-        result = ask(q)
+        result = ask(q, subject)
         print(f"\n{result['answer']}\n")
         print("Sources retrieved:")
         for s in result["sources"]:
             mark = " (cited)" if s["cited"] else ""
-            print(f"  - {s['file']}, p.{s['page']}{mark}")
+            print(f"  - {s['title']} [{s['file']}], p.{page_text(s['page'], s['page_end'])}{mark}")
         if result["bad_citations"]:
-            pages = ", ".join(f"p.{p}" for p in result["bad_citations"])
-            print(f"\nWARNING: answer cites pages that were not retrieved: {pages}")
+            print(f"\nWARNING: citations not among the retrieved passages: {', '.join(result['bad_citations'])}")
         print()

@@ -1,0 +1,15 @@
+# Runs extract.py (OCR) inside Linux so you do not need Tesseract installed on the Mac.
+# Build:  docker build -f Dockerfile.extract -t notes-extract .
+# Run:    docker run --rm -v "$PWD/data:/app/data" notes-extract --workers 4
+FROM python:3.12-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+RUN pip install --no-cache-dir pypdfium2 pytesseract pillow
+COPY extract.py .
+
+# extract.py reads /app/data/documents and writes /app/data/extracted (the mounted ./data folder)
+ENTRYPOINT ["python", "extract.py"]

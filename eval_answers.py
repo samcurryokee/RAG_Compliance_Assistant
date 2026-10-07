@@ -4,9 +4,9 @@ Usage:  python3 eval_answers.py [label]
 Example: python3 eval_answers.py baseline
          python3 eval_answers.py after-prompt-change
 
-Appends a summary line to eval_history.jsonl so you can compare runs before and after
-any change to the prompt, chunking, k or models. Makes one Groq call per question,
-paced to respect free-tier limits (EVAL_PAUSE_SECONDS, default 3).
+Appends a summary line to eval_history.jsonl so you can compare runs before and after any
+change to the prompt, chunking, k or models. One Groq call per question, paced for free tiers
+(EVAL_PAUSE_SECONDS, default 3).
 """
 import json
 import os
@@ -14,14 +14,15 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from chain import ask, cited_pages
+from chain import ask
 
 PAUSE = float(os.getenv("EVAL_PAUSE_SECONDS", "3"))
-# For should_refuse questions, a polite "the text does not mention this" also counts.
+# For should_refuse questions, a polite "the notes do not mention this" also counts.
 SOFT_REFUSAL_MARKERS = (
     "does not mention",
     "does not contain",
     "does not address",
+    "do not mention",
     "no information",
     "not provided",
 )
@@ -29,7 +30,7 @@ SOFT_REFUSAL_MARKERS = (
 
 def main():
     label = sys.argv[1] if len(sys.argv) > 1 else "run"
-    with open("golden_set.json") as f:
+    with open("golden_set.json", encoding="utf-8") as f:
         golden = json.load(f)
 
     rows = []
@@ -42,8 +43,8 @@ def main():
             time.sleep(30)
             continue
 
-        cited = cited_pages(r["answer"])
-        expected = set(q.get("expected_pages", []))
+        cited = r["cited"]
+        expected = {(e["file"], p) for e in q["expected"] for p in e["pages"]}
         lowered = r["answer"].lower()
         row = {"id": q["id"], "should_refuse": q["should_refuse"], "error": False}
 
@@ -73,9 +74,8 @@ def main():
             if row["no_citation"]:
                 flags.append("NO CITATION")
             if row["cites_expected"] is False:
-                flags.append(f"cites {sorted(cited)} not expected {sorted(expected)}")
-        status = "PASS" if row["pass"] else "FAIL"
-        print(f"{q['id']} [{status}] {'; '.join(flags)}")
+                flags.append("cited pages do not include the expected ones")
+        print(f"{q['id']} [{'PASS' if row['pass'] else 'FAIL'}] {'; '.join(flags)}")
         print(f"     {q['question']}")
         time.sleep(PAUSE)
 
@@ -110,7 +110,7 @@ def main():
     if summary["errors"]:
         print(f"Errors (not scored):         {summary['errors']}")
 
-    with open("eval_history.jsonl", "a") as f:
+    with open("eval_history.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps(summary) + "\n")
     print("Saved summary to eval_history.jsonl")
 

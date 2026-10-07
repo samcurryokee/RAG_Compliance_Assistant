@@ -1,18 +1,258 @@
 [
-  {"id": "q01", "question": "What does the constitution say about freedom of expression?", "article_hint": "Article 33", "expected_pages": [25], "should_refuse": false, "verified": false},
-  {"id": "q02", "question": "Does the constitution allow the death penalty?", "article_hint": "Article 26(3)", "expected_pages": [23], "should_refuse": false, "verified": false},
-  {"id": "q03", "question": "What rights does an arrested person have?", "article_hint": "Article 49", "expected_pages": [32], "should_refuse": false, "verified": false},
-  {"id": "q04", "question": "What are the qualifications for a person to be elected President?", "article_hint": "Article 137", "expected_pages": [78], "should_refuse": false, "verified": false},
-  {"id": "q05", "question": "How can a President be removed from office?", "article_hint": "Article 145", "expected_pages": [83], "should_refuse": false, "verified": false},
-  {"id": "q06", "question": "How many terms can a President serve?", "article_hint": "Article 142", "expected_pages": [82], "should_refuse": false, "verified": false},
-  {"id": "q07", "question": "What is the right to privacy?", "article_hint": "Article 31", "expected_pages": [24], "should_refuse": false, "verified": false},
-  {"id": "q08", "question": "What does the constitution say about access to information?", "article_hint": "Article 35", "expected_pages": [26], "should_refuse": false, "verified": false},
-  {"id": "q09", "question": "What is the right to a fair hearing?", "article_hint": "Article 50", "expected_pages": [33], "should_refuse": false, "verified": false},
-  {"id": "q10", "question": "What are the national values and principles of governance?", "article_hint": "Article 10", "expected_pages": [14], "should_refuse": false, "verified": false},
-  {"id": "q11", "question": "What does the constitution say about equality and freedom from discrimination?", "article_hint": "Article 27", "expected_pages": [23], "should_refuse": false, "verified": false},
-  {"id": "q12", "question": "What are the economic and social rights in the Bill of Rights?", "article_hint": "Article 43", "expected_pages": [30], "should_refuse": false, "verified": false},
-  {"id": "q13", "question": "What is the role of the Independent Electoral and Boundaries Commission?", "article_hint": "Article 88", "expected_pages": [52], "should_refuse": false, "verified": false},
-  {"id": "q14", "question": "What is the capital of France?", "article_hint": "not in document", "expected_pages": [], "should_refuse": true},
-  {"id": "q15", "question": "What does Article 999 say?", "article_hint": "does not exist", "expected_pages": [], "should_refuse": true}
+  {
+    "id": "q01",
+    "question": "What is the difference between meningocele and myelomeningocele?",
+    "expected": [
+      {
+        "file": "ALL CONGENITAL ANOMALIES AND THEIR BASIS (2).pdf",
+        "pages": [
+          3,
+          4
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "spina bifida cystica"
+  },
+  {
+    "id": "q02",
+    "question": "What are the four components of tetralogy of Fallot?",
+    "expected": [
+      {
+        "file": "ALL CONGENITAL ANOMALIES AND THEIR BASIS (2).pdf",
+        "pages": [
+          36
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "heart anomalies"
+  },
+  {
+    "id": "q03",
+    "question": "What causes Hirschsprung's disease?",
+    "expected": [
+      {
+        "file": "ALL CONGENITAL ANOMALIES AND THEIR BASIS (2).pdf",
+        "pages": [
+          5
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "neural crest migration"
+  },
+  {
+    "id": "q04",
+    "question": "What is Treacher Collins syndrome and what are its features?",
+    "expected": [
+      {
+        "file": "ALL CONGENITAL ANOMALIES AND THEIR BASIS (2).pdf",
+        "pages": [
+          16
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "first arch syndrome"
+  },
+  {
+    "id": "q05",
+    "question": "What is oligohydramnios and what complications can it cause?",
+    "expected": [
+      {
+        "file": "ALL CONGENITAL ANOMALIES AND THEIR BASIS (2).pdf",
+        "pages": [
+          7
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "amnion"
+  },
+  {
+    "id": "q06",
+    "question": "What causes hypospadias?",
+    "expected": [
+      {
+        "file": "ALL CONGENITAL ANOMALIES AND THEIR BASIS (2).pdf",
+        "pages": [
+          44
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "genital anomalies"
+  },
+  {
+    "id": "q07",
+    "question": "What is a morula and when does it enter the uterus?",
+    "expected": [
+      {
+        "file": "Basic Embryology, Pulei.pdf",
+        "pages": [
+          130
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "week 1 post conception"
+  },
+  {
+    "id": "q08",
+    "question": "What are the stages of the cell cycle?",
+    "expected": [
+      {
+        "file": "Basic Embryology, Pulei.pdf",
+        "pages": [
+          45
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "cell cycle"
+  },
+  {
+    "id": "q09",
+    "question": "When does the primitive streak appear and what is gastrulation?",
+    "expected": [
+      {
+        "file": "Basic Embryology, Pulei.pdf",
+        "pages": [
+          200
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "gastrulation"
+  },
+  {
+    "id": "q10",
+    "question": "What are amnioblasts and what do they form?",
+    "expected": [
+      {
+        "file": "Basic Embryology, Pulei.pdf",
+        "pages": [
+          280
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "amniotic cavity"
+  },
+  {
+    "id": "q11",
+    "question": "What is the output of the globus pallidus externa and the subthalamic nucleus in basal ganglia circuitry?",
+    "expected": [
+      {
+        "file": "Neuroanat Review Session Notes.pdf",
+        "pages": [
+          240
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "basal ganglia"
+  },
+  {
+    "id": "q12",
+    "question": "Which nerve fibres carry pain and thermal impulses in the lateral spinothalamic tract?",
+    "expected": [
+      {
+        "file": "Neuroanatomy Lecture Notes Final.pdf",
+        "pages": [
+          400
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "spinothalamic tract"
+  },
+  {
+    "id": "q13",
+    "question": "What are the types of white matter fibres?",
+    "expected": [
+      {
+        "file": "Neuroanatomy Lecture Notes Final.pdf",
+        "pages": [
+          24
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "grey and white matter"
+  },
+  {
+    "id": "q14",
+    "question": "Why is the sensory level usually higher than the exact level of a spinal cord injury?",
+    "expected": [
+      {
+        "file": "Neuroanatomy Lecture Notes Final.pdf",
+        "pages": [
+          120
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "Lissauer's tract"
+  },
+  {
+    "id": "q15",
+    "question": "What are the six layers of the cerebral cortex?",
+    "expected": [
+      {
+        "file": "Neurohistology Lecture Notes Final (1).pdf",
+        "pages": [
+          150,
+          200
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "cortical layers"
+  },
+  {
+    "id": "q16",
+    "question": "What are the afferents and efferents of the inferior colliculus?",
+    "expected": [
+      {
+        "file": "Neurohistology Lecture Notes Final (1).pdf",
+        "pages": [
+          40
+        ]
+      }
+    ],
+    "should_refuse": false,
+    "verified": true,
+    "note": "inferior colliculus"
+  },
+  {
+    "id": "q17",
+    "question": "What is the capital of France?",
+    "expected": [],
+    "should_refuse": true,
+    "note": "off-topic"
+  },
+  {
+    "id": "q18",
+    "question": "What is the recommended dose of amoxicillin for otitis media in children?",
+    "expected": [],
+    "should_refuse": true,
+    "note": "clinical dosing, not in the notes"
+  }
 ]
-

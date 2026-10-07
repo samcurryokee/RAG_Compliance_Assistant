@@ -1,10 +1,8 @@
-# Unpinned on purpose for the first deploy. Once it works, run `pip freeze` and pin.
+# Server (Render). Unpinned for the first deploy; once it works, run `pip freeze` and pin.
 fastapi
 uvicorn
 python-dotenv
-pypdf
 langchain-core
-langchain-text-splitters
 langchain-postgres
 langchain-google-genai
 langchain-groq

@@ -1,0 +1,7 @@
+# Laptop only (extract.py + ingest.py). extract.py also needs the Tesseract program:
+# brew install tesseract, or use Dockerfile.extract instead (see README).
+-r requirements.txt
+langchain-text-splitters
+pypdfium2
+pytesseract
+pillow
