@@ -28,7 +28,7 @@ Rules:
 1. Say "I could not find this in the provided documents." ONLY if none of the passages
    is relevant to the question. If any passage is related, answer from it (see rule 5).
 2. Cite every claim as [filename, p.N], copying the label shown above the passage EXACTLY.
-    If the label shows a page range, cite it as shown. Always use plain square brackets [ ],
+   If the label shows a page range, cite it as shown. Always use plain square brackets [ ],
    never any other bracket style, and one citation per pair of brackets.
    Example: [Basic Embryology, Pulei.pdf, p.40-42]
 3. Only cite labels that appear in the context below. Never invent a file or page.
@@ -38,10 +38,12 @@ Rules:
    not state, then explain what the relevant passages do say and cite them.
 6. Do not add facts, numbers or clinical advice that are not in the passages.
    Do not use outside knowledge.
-7. Keep answers concise and structured (short paragraphs or bullet points) and use the
-   terminology of the notes.
+7. Use the terminology of the notes and follow the output format below.
 8. If the question is about caring for a patient or choosing a treatment, add one sentence
    saying this is a study aid and to verify with a qualified clinician and current guidelines.
+
+{history}Output format:
+{format_instructions}
 
 Context:
 {context}
@@ -50,7 +52,43 @@ Question: {question}
 
 Answer:"""
 
-# [file name, p.12] or [file name, p.12-14]; file names may contain commas
+# ---- output styles ----------------------------------------------------------------------
+STYLES = ("explain", "table", "mcq")
+TOP_K_STRUCTURED = int(os.getenv("TOP_K_STRUCTURED", "8"))  # tables and quizzes need more material
+
+FORMAT_INSTRUCTIONS = {
+    "explain": "Answer concisely in short paragraphs or bullet points.",
+    "table": (
+        "Present the answer as ONE Markdown table with a header row and a separator row, "
+        "for example:\n"
+        "| Feature | Item A | Item B | Source |\n"
+        "|---|---|---|---|\n"
+        "Choose columns that fit the question, keep cells short and in plain text, and make the "
+        "last column 'Source' with the citation for that row. You may add one short sentence "
+        "before the table and, if needed, one sentence after it about anything the notes do not "
+        "cover. Output nothing else."
+    ),
+    "mcq": (
+        "Write {count} multiple-choice questions based ONLY on the passages, using exactly this "
+        "template for every question, with a blank line between questions:\n"
+        "Q1. <question text>\n"
+        "A) <option>\n"
+        "B) <option>\n"
+        "C) <option>\n"
+        "D) <option>\n"
+        "Answer: <one letter>\n"
+        "Explanation: <one or two sentences from the notes> [file name, p.N]\n"
+        "Rules for the questions: exactly four options and exactly one correct option; the question, "
+        "the correct option and the explanation must come from the passages; wrong options may use "
+        "plausible terms but must be clearly wrong according to the passages; vary the position of "
+        "the correct letter; never use 'all of the above' or 'none of the above'. If the passages "
+        "only support fewer questions, write fewer. Optionally start with one short sentence; "
+        "output nothing after the last explanation."
+    ),
+}
+
+# "<file>.pdf, p.12" or "<file>.pdf, p.12-14", inside any bracket style or none.
+# Anchored on ".pdf" because file names can contain commas and parentheses.
 CITATION_RE = re.compile(
     r"([^\[\]\u3010\u3011\n]*?\.pdf)\s*,\s*pp?\.\s*(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?",
     re.IGNORECASE,
@@ -179,15 +217,162 @@ def make_snippet(text, limit=350):
     return text if len(text) <= limit else text[:limit].rstrip() + "..."
 
 
+# ---- formatting helpers ------------------------------------------------------------------
+
+TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
+FOLLOWUP_RE = re.compile(
+    r"\b(that|this|it|its|those|these|them|above|previous|same|more|again|further|also)\b", re.I
+)
+_MCQ_WORDS = re.compile(r"\b(mcqs?|multiple[- ]choice|quiz|test me|practice questions?)\b", re.I)
+_TABLE_WORDS = re.compile(r"\b(table|tabulate|tabulated|compare|comparison|versus|vs\.?)\b", re.I)
+_COUNT_RE = re.compile(r"\b(\d{1,2})\s*(?:mcqs?|multiple[- ]choice|questions?|quiz)", re.I)
+
+
+def detect_style(question):
+    """Pick an output style from the wording of the question (used when style is 'auto')."""
+    if _MCQ_WORDS.search(question):
+        return "mcq"
+    if _TABLE_WORDS.search(question):
+        return "table"
+    return "explain"
+
+
+def detect_count(question, default=5):
+    m = _COUNT_RE.search(question)
+    return max(1, min(10, int(m.group(1)))) if m else default
+
+
+def has_table(text):
+    lines = text.splitlines()
+    return any(
+        TABLE_SEP_RE.match(lines[i]) and "|" in lines[i - 1] for i in range(1, len(lines))
+    )
+
+
+_Q_RE = re.compile(r"^(?:question\s*)?q?\s*(\d{1,2})\s*[.):]\s*(.+)$", re.I)
+_OPT_RE = re.compile(r"^\(?([A-Ea-e])\s*[.)]\s+(.+)$")
+_ANS_RE = re.compile(
+    r"^(?:correct\s+)?answer\s*(?:is\s*)?[:\-]?\s*\(?([A-Ea-e])(?=[\s.):,]|$)", re.I
+)
+_EXP_RE = re.compile(r"^(?:explanation|rationale|reason|why)\s*[:\-]\s*(.*)$", re.I)
+
+
+def _strip_md(line):
+    line = re.sub(r"^[\s>#*_\-\u2022]+", "", line)
+    return line.replace("**", "").replace("__", "").strip()
+
+
+def parse_quiz(text, count=10):
+    """Parse the MCQ template into [{number, question, options:[{letter,text}], answer, explanation}].
+
+    Tolerates markdown bold, '1)' or 'Question 1:' numbering, '(a)' options and a missing
+    explanation. Questions that cannot be parsed cleanly are dropped; [] means fall back to text.
+    """
+    questions, cur, mode = [], None, None
+
+    def finish():
+        if not cur:
+            return
+        letters = [o["letter"] for o in cur["options"]]
+        if cur["question"] and len(letters) >= 2 and cur["answer"] in letters:
+            questions.append(cur)
+
+    for raw in text.splitlines():
+        line = _strip_md(raw)
+        if not line:
+            continue
+        m = _Q_RE.match(line)
+        if m and not _OPT_RE.match(line):
+            finish()
+            cur = {"question": m.group(2).strip(), "options": [], "answer": "", "explanation": ""}
+            mode = "question"
+            continue
+        if cur is None:
+            continue
+        m = _ANS_RE.match(line)
+        if m:
+            cur["answer"] = m.group(1).upper()
+            mode = None
+            continue
+        m = _EXP_RE.match(line)
+        if m:
+            cur["explanation"] = m.group(1).strip()
+            mode = "explanation"
+            continue
+        m = _OPT_RE.match(line)
+        if m and mode in ("question", "options"):
+            cur["options"].append({"letter": m.group(1).upper(), "text": m.group(2).strip()})
+            mode = "options"
+            continue
+        if mode == "explanation":
+            cur["explanation"] = (cur["explanation"] + " " + line).strip()
+        elif mode == "question":
+            cur["question"] = (cur["question"] + " " + line).strip()
+    finish()
+
+    questions = questions[:count]
+    for i, q in enumerate(questions, start=1):
+        q["number"] = i
+    return questions
+
+
+def history_block(history):
+    """Last two Q&A pairs as context for follow-up questions ('' when there are none)."""
+    if not history:
+        return ""
+    lines = ["Conversation so far (context only; answer from the passages below, not from earlier answers):"]
+    for h in history[-2:]:
+        lines.append(f"User: {h['question'].strip()}")
+        lines.append(f"Assistant: {h['answer'].strip()[:600]}")
+    return "\n".join(lines) + "\n\n"
+
+
+def retrieval_query(question, history):
+    """Short follow-ups ('make that a table') borrow the previous question for retrieval."""
+    if history and len(question.split()) <= 12 and FOLLOWUP_RE.search(question):
+        return f"{history[-1]['question']} {question}"
+    return question
+
+
 # ---- main entry points -------------------------------------------------------------------
 
-def ask(question, subject=None):
-    """Answer a question from the notes. subject optionally restricts the search."""
+def ask(question, subject=None, style="auto", count=5, history=None):
+    """Answer a question from the notes.
+
+    subject: restrict the search to one subject.  style: auto | explain | table | mcq.
+    count: number of MCQs.  history: previous [{'question','answer'}] pairs for follow-ups.
+    """
+    history = history or []
+    if style not in STYLES:
+        style = detect_style(question)
+        count = detect_count(question, count)
     flt = {"subject": {"$eq": subject}} if subject else None
-    docs = get_store().similarity_search(question, k=TOP_K, filter=flt)
-    answer = get_chain().invoke({"context": format_docs(docs), "question": question}).strip()
+    k = TOP_K_STRUCTURED if style in ("table", "mcq") else TOP_K
+    docs = get_store().similarity_search(retrieval_query(question, history), k=k, filter=flt)
+
+    answer = get_chain().invoke(
+        {
+            "context": format_docs(docs),
+            "question": question,
+            "history": history_block(history),
+            "format_instructions": FORMAT_INSTRUCTIONS[style].replace("{count}", str(count)),
+        }
+    ).strip()
     answer = answer.replace("\u3010", "[").replace("\u3011", "]")  # tidy 【 】 into [ ]
     cited = cited_pairs(answer, {source_label(d) for d in docs})
+
+    refused = is_refusal(answer)
+    notes, quiz, shown_style = [], [], style
+    if refused:
+        shown_style = "explain"
+    elif style == "mcq":
+        quiz = parse_quiz(answer, count)
+        if not quiz:
+            shown_style = "explain"
+            notes.append("Could not format the questions as a quiz, so they are shown as text.")
+    elif style == "table" and not has_table(answer):
+        shown_style = "explain"
+        notes.append("Could not format the answer as a table, so it is shown as text.")
 
     sources, seen = [], set()
     for d in docs:  # retrieval order, one entry per page span
@@ -210,8 +395,11 @@ def ask(question, subject=None):
 
     return {
         "answer": answer,
+        "style": shown_style,
+        "quiz": quiz,
+        "notes": notes,
         "sources": sources,
-        "refused": is_refusal(answer),
+        "refused": refused,
         "cited": cited,
         "bad_citations": check_citations(answer, docs),
         "retrieved": [(s["file"], s["page"], s["page_end"]) for s in sources],

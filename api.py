@@ -9,7 +9,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from datetime import date
-from typing import Optional
+from typing import Literal, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
@@ -77,7 +77,7 @@ limiter = RateLimiter(RATE_LIMIT_PER_MINUTE, DAILY_CAP)
 _docs_cache = {"time": 0.0, "data": None}
 _docs_lock = threading.Lock()
 
-app = FastAPI(title="Medical Notes Assistant", version="2.0.0")
+app = FastAPI(title="Medical Notes Assistant", version="2.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -87,9 +87,17 @@ app.add_middleware(
 )
 
 
+class HistoryItem(BaseModel):
+    question: str = Field(..., max_length=500)
+    answer: str = Field(..., max_length=6000)
+
+
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=3, max_length=500)
     subject: Optional[str] = Field(None, max_length=60)
+    style: Literal["auto", "explain", "table", "mcq"] = "auto"
+    count: int = Field(5, ge=1, le=10)  # number of MCQs
+    history: list[HistoryItem] = Field(default_factory=list, max_length=4)  # earlier Q&A, for follow-ups
 
 
 class Source(BaseModel):
@@ -102,10 +110,25 @@ class Source(BaseModel):
     cited: bool
 
 
+class QuizOption(BaseModel):
+    letter: str
+    text: str
+
+
+class QuizQuestion(BaseModel):
+    number: int
+    question: str
+    options: list[QuizOption]
+    answer: str  # the correct option's letter
+    explanation: str
+
+
 class AskResponse(BaseModel):
     answer: str
+    style: str = "explain"  # what the answer is actually formatted as: explain | table | mcq
+    quiz: list[QuizQuestion] = Field(default_factory=list)
     sources: list[Source]
-    warnings: list[str] = []
+    warnings: list[str] = Field(default_factory=list)
 
 
 class DocumentInfo(BaseModel):
@@ -194,7 +217,13 @@ def ask(body: AskRequest, request: Request):
         )
 
     try:
-        result = chain.ask(body.question.strip(), subject)
+        result = chain.ask(
+            body.question.strip(),
+            subject,
+            style=body.style,
+            count=body.count,
+            history=[h.model_dump() for h in body.history][-2:],
+        )
     except Exception as e:
         log.exception("ask failed")
         msg = str(e)
@@ -202,10 +231,16 @@ def ask(body: AskRequest, request: Request):
             raise HTTPException(503, "The AI providers are rate-limited right now. Try again in a minute.")
         raise HTTPException(500, "Something went wrong answering that question.")
 
-    warnings = []
+    warnings = list(result["notes"])
     if result["bad_citations"]:
         warnings.append(
             "The answer cites pages that were not among the retrieved passages "
             f"({', '.join(result['bad_citations'])}). Please verify those citations in the notes."
         )
-    return {"answer": result["answer"], "sources": result["sources"], "warnings": warnings}
+    return {
+        "answer": result["answer"],
+        "style": result["style"],
+        "quiz": result["quiz"],
+        "sources": result["sources"],
+        "warnings": warnings,
+    }

@@ -1,6 +1,6 @@
 # Prompt to paste into Lovable
 
-Replace `YOUR-SERVICE` in the API URL with your real Render service name first.
+Replace `MEDICAL NOTES ASSISTANT` in the API URL with your real Render service name first.
 
 ---
 
@@ -13,7 +13,7 @@ HARD CONSTRAINTS
   functions or any other backend. Store nothing. No login, no analytics.
 - All data comes from one external REST API, called with fetch from the browser.
 - Put the API base URL in one constant in `src/lib/config.ts`:
-  `export const API_BASE_URL = "https://YOUR-SERVICE.onrender.com";`
+  `export const API_BASE_URL = "https://medical-notes-api.onrender.com";`
 
 API CONTRACT
 1) GET `${API_BASE_URL}/documents` returns:
