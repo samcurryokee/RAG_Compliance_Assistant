@@ -112,17 +112,6 @@ the file and pages where the answer lives (`python3 find_pages.py "phrase"` find
 5. **Keep-alive:** GitHub repo > Settings > Secrets and variables > Actions > Variables:
    add `API_URL` = your Render URL.
 
-## Removing the old Constitution test data
-
-Delete the old PDF from `data/documents/`. To remove its vectors from Supabase, run this in the
-Supabase SQL editor:
-
-```sql
-DELETE FROM langchain_pg_collection WHERE name = 'kenyan_constitution';
-```
-
-(Its chunks are deleted with it.) The medical notes live in the separate `medical_notes` collection.
-
 ## Free-tier caveats
 
 - Render free services sleep after about 15 minutes idle; the first request then takes around a minute.
